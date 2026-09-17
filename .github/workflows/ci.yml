@@ -1,0 +1,58 @@
+name: CI — Lint, Typecheck & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared types
+        run: npm run build --workspace=packages/types
+
+      - name: Typecheck backend
+        run: npm run typecheck --workspace=apps/backend
+
+      - name: Typecheck frontend
+        run: npm run typecheck --workspace=apps/frontend
+
+      - name: Test backend
+        run: npm run test --workspace=apps/backend --if-present
+        env:
+          NODE_ENV: test
+          GROQ_API_KEY: test_key
+          SUPABASE_URL: https://test.supabase.co
+          SUPABASE_KEY: test_key
+          INCIDENTS_TABLE: test-incidents
+          REPOS_TABLE: test-repos
+          KNOWLEDGE_TABLE: test-knowledge
+          USERS_TABLE: test-users
+          FEEDBACK_TABLE: test-feedback
+          LOGS_BUCKET: test-bucket
+          GITHUB_APP_ID: "12345"
+          GITHUB_APP_PRIVATE_KEY: test_key
+          GITHUB_WEBHOOK_SECRET: test_secret
+          GITHUB_CLIENT_ID: test_id
+          GITHUB_CLIENT_SECRET: test_secret
+          SES_FROM_EMAIL: test@test.com
+          SES_ALERT_EMAIL: test@test.com
+          JWT_SECRET: test_jwt_secret_must_be_long_enough_32chars
+          FRONTEND_URL: http://localhost:3000

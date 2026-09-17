@@ -1,0 +1,25 @@
+{
+  "name": "ai-incident-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Incident Response Platform — AIOps Copilot",
+  "workspaces": [
+    "apps/frontend",
+    "apps/backend",
+    "packages/types"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=apps/frontend\" \"npm run dev --workspace=apps/backend\"",
+    "build": "npm run build --workspace=packages/types && npm run build --workspace=apps/backend && npm run build --workspace=apps/frontend",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

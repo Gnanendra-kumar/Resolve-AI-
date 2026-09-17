@@ -1,0 +1,341 @@
+service: ai-incident-platform
+frameworkVersion: "3"
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+
+custom:
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+  tableName:
+    incidents: aiops-incidents-${self:custom.stage}
+    repos: aiops-repos-${self:custom.stage}
+    knowledge: aiops-knowledge-${self:custom.stage}
+    users: aiops-users-${self:custom.stage}
+    feedback: aiops-feedback-${self:custom.stage}
+  s3Bucket: aiops-logs-${self:custom.stage}-${aws:accountId}
+  sqsQueue: aiops-incident-queue-${self:custom.stage}
+  serverless-offline:
+    httpPort: 3001
+    lambdaPort: 3002
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: false
+    target: node20
+    platform: node
+    concurrency: 10
+    exclude:
+      - '@aws-sdk/*'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${self:custom.region}
+  stage: ${self:custom.stage}
+  memorySize: 512
+  timeout: 30
+  logRetentionInDays: 7
+
+  environment:
+    STAGE: ${self:custom.stage}
+    REGION: ${self:custom.region}
+    # Groq AI
+    GROQ_API_KEY: ${env:GROQ_API_KEY, ''}
+    GROQ_MODEL: llama-3.3-70b-versatile
+    GROQ_EMBED_MODEL: nomic-embed-text-v1.5
+    # Supabase
+    SUPABASE_URL: ${env:SUPABASE_URL, ''}
+    SUPABASE_KEY: ${env:SUPABASE_KEY, ''}
+    # DynamoDB Tables
+    INCIDENTS_TABLE: ${self:custom.tableName.incidents}
+    REPOS_TABLE: ${self:custom.tableName.repos}
+    KNOWLEDGE_TABLE: ${self:custom.tableName.knowledge}
+    USERS_TABLE: ${self:custom.tableName.users}
+    FEEDBACK_TABLE: ${self:custom.tableName.feedback}
+    # S3
+    LOGS_BUCKET: ${self:custom.s3Bucket}
+    # SQS
+    INCIDENT_QUEUE_URL: !Ref IncidentQueue
+    # GitHub
+    GITHUB_APP_ID: ${env:GITHUB_APP_ID, ''}
+    GITHUB_APP_PRIVATE_KEY: ${env:GITHUB_APP_PRIVATE_KEY, ''}
+    GITHUB_WEBHOOK_SECRET: ${env:GITHUB_WEBHOOK_SECRET, ''}
+    GITHUB_CLIENT_ID: ${env:GITHUB_CLIENT_ID, ''}
+    GITHUB_CLIENT_SECRET: ${env:GITHUB_CLIENT_SECRET, ''}
+    # AWS SES Email — TEMPORARILY DISABLED
+    # SES_FROM_EMAIL: ${env:SES_FROM_EMAIL, ''}
+    # SES_ALERT_EMAIL: ${env:SES_ALERT_EMAIL, ''}
+    # SES_WEEKLY_EMAIL: ${env:SES_WEEKLY_EMAIL, ''}
+    # Auth
+    JWT_SECRET: ${env:JWT_SECRET, ''}
+    JWT_EXPIRY: 7d
+    # App
+    FRONTEND_URL: ${env:FRONTEND_URL, ''}
+    AI_CONFIDENCE_THRESHOLD: "85"
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - !GetAtt IncidentsTable.Arn
+            - !Sub "${IncidentsTable.Arn}/index/*"
+            - !GetAtt ReposTable.Arn
+            - !Sub "${ReposTable.Arn}/index/*"
+            - !GetAtt KnowledgeTable.Arn
+            - !GetAtt UsersTable.Arn
+            - !Sub "${UsersTable.Arn}/index/*"
+            - !GetAtt FeedbackTable.Arn
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource: !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+          Resource: !GetAtt IncidentQueue.Arn
+        # SES permissions — TEMPORARILY DISABLED
+        # - Effect: Allow
+        #   Action:
+        #     - ses:SendEmail
+        #     - ses:SendRawEmail
+        #   Resource: "*"
+
+functions:
+  # ── API Handler (all /api/* and /auth/* routes) ──────────────────────────
+  apiHandler:
+    handler: src/functions/api-handler/index.handler
+    timeout: 15
+    events:
+      - httpApi:
+          path: /api/{proxy+}
+          method: ANY
+      - httpApi:
+          path: /auth/{proxy+}
+          method: ANY
+      - httpApi:
+          path: /health
+          method: GET
+
+  # ── GitHub Webhook Receiver ───────────────────────────────────────────────
+  webhookReceiver:
+    handler: src/functions/webhook-receiver/index.handler
+    timeout: 10
+    events:
+      - httpApi:
+          path: /webhook/github
+          method: POST
+
+  # ── Incident Processor (SQS-triggered, runs AI pipeline) ─────────────────
+  incidentProcessor:
+    handler: src/functions/incident-processor/index.handler
+    timeout: 120
+    memorySize: 1024
+    events:
+      - sqs:
+          arn: !GetAtt IncidentQueue.Arn
+          batchSize: 1
+          functionResponseType: ReportBatchItemFailures
+
+  # ── Pull Request Creator ──────────────────────────────────────────────────
+  prCreator:
+    handler: src/functions/pr-creator/index.handler
+    timeout: 30
+
+  # ── Email Notifier (Amazon SES) — TEMPORARILY DISABLED ────────────────────
+  # emailNotifier:
+  #   handler: src/functions/email-notifier/index.handler
+  #   timeout: 15
+
+  # ── Feedback Handler ──────────────────────────────────────────────────────
+  feedbackHandler:
+    handler: src/functions/feedback-handler/index.handler
+    timeout: 30
+    events:
+      - httpApi:
+          path: /feedback/{token}
+          method: GET
+
+  # ── Nightly Learning Job ──────────────────────────────────────────────────
+  learningJob:
+    handler: src/functions/learning-job/index.handler
+    timeout: 300
+    memorySize: 1024
+    events:
+      - schedule:
+          rate: rate(1 day)
+          enabled: true
+          input:
+            source: scheduled
+
+  # ── GitHub Polling Fallback ───────────────────────────────────────────────
+  pollGithub:
+    handler: src/functions/poll-github/index.handler
+    timeout: 60
+    events:
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+
+resources:
+  Resources:
+    # ── SQS Queue ────────────────────────────────────────────────────────────
+    IncidentQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.sqsQueue}
+        VisibilityTimeout: 180
+        MessageRetentionPeriod: 86400
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt IncidentDLQ.Arn
+          maxReceiveCount: 3
+
+    IncidentDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: aiops-incident-dlq-${self:custom.stage}
+        MessageRetentionPeriod: 604800
+
+    # ── S3 Bucket for Logs ────────────────────────────────────────────────
+    LogsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3Bucket}
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldLogs
+              Status: Enabled
+              ExpirationInDays: 30
+
+    # ── DynamoDB Tables ───────────────────────────────────────────────────
+    IncidentsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName.incidents}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: repositoryId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+          - AttributeName: status
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: byRepo
+            KeySchema:
+              - AttributeName: repositoryId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: byStatus
+            KeySchema:
+              - AttributeName: status
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+    ReposTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName.repos}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: githubId
+            AttributeType: N
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: byGithubId
+            KeySchema:
+              - AttributeName: githubId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    KnowledgeTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName.knowledge}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName.users}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: githubId
+            AttributeType: N
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: byGithubId
+            KeySchema:
+              - AttributeName: githubId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    FeedbackTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName.feedback}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: incidentId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: byIncident
+            KeySchema:
+              - AttributeName: incidentId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+  Outputs:
+    WebhookUrl:
+      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/webhook/github"
+      Description: GitHub Webhook URL
+    ApiUrl:
+      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+      Description: API Base URL
