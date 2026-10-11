@@ -1,5 +1,6 @@
 service: ai-incident-platform
 frameworkVersion: "3"
+useDotenv: true
 
 plugins:
   - serverless-esbuild

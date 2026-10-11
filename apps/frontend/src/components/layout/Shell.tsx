@@ -22,7 +22,7 @@ export default function Shell({ children }: ShellProps) {
             <footer className="mt-12 py-6 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 text-slate-500 text-sm">
               <div className="flex items-center gap-5">
                 <a 
-                  href="https://github.com/22je0249/ai-incident-support" 
+                  href="https://github.com/Gnanendra-kumar/Resolve-AI-" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-slate-400 hover:text-teal-600 transition-colors"
@@ -31,7 +31,7 @@ export default function Shell({ children }: ShellProps) {
                   <Github className="w-5 h-5" />
                 </a>
                 <a 
-                  href="mailto:bheemunipavankumar93@gmail.com"
+                  href="mailto:gnanendrakumarpendyala@gmail.com"
                   className="text-slate-400 hover:text-teal-600 transition-colors"
                   title="Email Support"
                 >
