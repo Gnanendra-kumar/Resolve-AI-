@@ -3,6 +3,14 @@
   "outputDirectory": "apps/frontend/dist",
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://0u3wgjv8u6.execute-api.us-east-1.amazonaws.com/api/:path*"
+    },
+    {
+      "source": "/auth/:path*",
+      "destination": "https://0u3wgjv8u6.execute-api.us-east-1.amazonaws.com/auth/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
