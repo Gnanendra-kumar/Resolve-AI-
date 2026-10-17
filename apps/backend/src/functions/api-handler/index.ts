@@ -412,8 +412,53 @@ app.post("/api/knowledge/sync", authMiddleware, async (_req: Request, res: Respo
     res.status(500).json({ success: false, error: String(err) });
   }
 });
+// ─── Repair Stuck Incidents (one-time migration) ──────────────────────────────
+
+app.post("/api/incidents/repair", authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const allIncidents = await dbScan<Incident>(Tables.INCIDENTS);
+    const stuckIncidents = allIncidents.filter((i) => i.status === "analyzing");
+
+    let repaired = 0;
+    let skipped = 0;
+
+    for (const incident of stuckIncidents) {
+      if (incident.aiDiagnosis) {
+        // Has diagnosis data — update status to "open" with proper fields
+        await dbUpdate(Tables.INCIDENTS, { id: incident.id }, {
+          status: "open",
+          confidence: incident.aiDiagnosis.confidence || incident.confidence,
+          riskLevel: incident.aiDiagnosis.riskLevel || incident.riskLevel,
+          rootCause: incident.aiDiagnosis.rootCause,
+          errorType: incident.aiDiagnosis.errorType,
+          resolution: incident.aiDiagnosis.resolution,
+          updatedAt: new Date().toISOString(),
+        });
+        repaired++;
+      } else {
+        // No diagnosis — set to "open" with defaults
+        await dbUpdate(Tables.INCIDENTS, { id: incident.id }, {
+          status: "open",
+          updatedAt: new Date().toISOString(),
+        });
+        skipped++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Repaired ${repaired} incidents with AI data, ${skipped} set to open without diagnosis`,
+      repaired,
+      skipped,
+      totalStuck: stuckIncidents.length,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
 
 // ─── Dashboard Stats ──────────────────────────────────────────────────────────
+
 
 app.get("/api/dashboard", authMiddleware, async (_req: Request, res: Response) => {
   try {
