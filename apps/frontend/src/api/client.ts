@@ -46,8 +46,13 @@ export const repositoriesApi = {
 
 export const knowledgeApi = {
   list: () => api.get("/knowledge").then((r) => r.data),
+  sync: () => api.post("/knowledge/sync").then((r) => r.data),
 };
 
 export const dashboardApi = {
   stats: () => api.get("/dashboard").then((r) => r.data),
+};
+
+export const userApi = {
+  me: () => api.get("/user/me").then((r) => r.data),
 };

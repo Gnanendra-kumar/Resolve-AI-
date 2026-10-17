@@ -82,9 +82,9 @@ app.get("/auth/github/callback", async (req: Request, res: Response) => {
     if (process.env.MOCK_DB === "true" || code === "mock_code") {
       githubUser = {
         id: 12345,
-        login: "mock-sre",
-        avatar_url: "https://github.com/identicons/mock-sre.png",
-        email: "mock-sre@company.com"
+        login: "Gnanendra-kumar",
+        avatar_url: "https://avatars.githubusercontent.com/u/Gnanendra-kumar",
+        email: "gnanendrakumarpendyala@gmail.com"
       };
     } else {
       // Exchange code for access token
@@ -327,6 +327,33 @@ app.delete("/api/repositories/:id", authMiddleware, async (req: Request, res: Re
   }
 });
 
+// ─── User Profile ─────────────────────────────────────────────────────────────
+
+app.get("/api/user/me", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const decoded = (req as any).user;
+    const user = await dbGet<User>(Tables.USERS, { id: decoded.userId });
+    if (!user) {
+      return res.json({
+        success: true,
+        data: { username: decoded.username, role: decoded.role },
+      });
+    }
+    res.json({
+      success: true,
+      data: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // ─── Knowledge Base ───────────────────────────────────────────────────────────
 
 app.get("/api/knowledge", authMiddleware, async (req: Request, res: Response) => {
@@ -334,6 +361,53 @@ app.get("/api/knowledge", authMiddleware, async (req: Request, res: Response) =>
     const entries = await dbScan<KnowledgeEntry>(Tables.KNOWLEDGE, undefined, undefined, 100);
     entries.sort((a, b) => b.successCount - a.successCount);
     res.json({ success: true, data: entries, total: entries.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ─── Manual Knowledge Base Sync ───────────────────────────────────────────────
+
+app.post("/api/knowledge/sync", authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    // Find resolved/pr_created incidents not yet in the knowledge base
+    const allIncidents = await dbScan<Incident>(Tables.INCIDENTS);
+    const resolvedIncidents = allIncidents.filter(
+      (i) => (i.status === "resolved" || i.status === "pr_created") && i.aiDiagnosis?.rootCause
+    );
+
+    const existingKb = await dbScan<KnowledgeEntry>(Tables.KNOWLEDGE, undefined, undefined, 200);
+    const existingIncidentIds = new Set(existingKb.map((k) => k.incidentId).filter(Boolean));
+
+    const toSync = resolvedIncidents.filter((i) => !existingIncidentIds.has(i.id));
+
+    let synced = 0;
+    for (const incident of toSync) {
+      if (!incident.aiDiagnosis) continue;
+      const now = new Date().toISOString();
+      await dbPut(Tables.KNOWLEDGE, {
+        id: uuidv4(),
+        incidentId: incident.id,
+        title: incident.title,
+        rootCause: incident.aiDiagnosis.rootCause,
+        resolution: incident.resolution || incident.aiDiagnosis.resolution,
+        errorType: incident.aiDiagnosis.errorType || "unknown",
+        technology: [],
+        verified: true,
+        successCount: 1,
+        totalUsage: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      synced++;
+    }
+
+    res.json({
+      success: true,
+      message: `Synced ${synced} resolved incidents to knowledge base`,
+      synced,
+      total: existingKb.length + synced,
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
@@ -353,7 +427,7 @@ app.get("/api/dashboard", authMiddleware, async (_req: Request, res: Response) =
     const todayIncidents = incidents.filter((i) => i.createdAt.startsWith(today));
 
     const resolved = incidents.filter((i) => i.status === "resolved");
-    const autoResolved = incidents.filter((i) => i.status === "resolved" && i.prUrl);
+    const autoResolved = incidents.filter((i) => (i.status === "resolved" || i.status === "pr_created") && i.prUrl);
     const open = incidents.filter((i) => i.status === "open" || i.status === "analyzing");
 
     const totalWithConfidence = incidents.filter((i) => i.confidence !== undefined);

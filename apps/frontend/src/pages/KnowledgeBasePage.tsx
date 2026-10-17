@@ -1,17 +1,29 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Search, BookOpen, CheckCircle, Star, Tag } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Search, BookOpen, CheckCircle, Star, Tag, RefreshCw } from "lucide-react";
+import toast from "react-hot-toast";
 import { knowledgeApi } from "../api/client";
 import { KnowledgeEntry } from "@aiops/types";
 import { format, parseISO } from "date-fns";
 
 export default function KnowledgeBasePage() {
   const [search, setSearch] = useState("");
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ["knowledge"],
     queryFn: knowledgeApi.list,
     refetchInterval: 60_000,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: knowledgeApi.sync,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["knowledge"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      toast.success(result.message || `Synced ${result.synced} entries`);
+    },
+    onError: () => toast.error("Failed to sync knowledge base"),
   });
 
   const entries: KnowledgeEntry[] = data?.data || [];
@@ -31,19 +43,30 @@ export default function KnowledgeBasePage() {
   return (
     <div className="space-y-6 pb-8">
 
-
-      {/* Search */}
+      {/* Search + Sync */}
       <div className="card">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            id="kb-search"
-            placeholder="Search knowledge base (root causes, resolutions, tech stack)…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input pl-10 text-base w-full"
-          />
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              id="kb-search"
+              placeholder="Search knowledge base (root causes, resolutions, tech stack)…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="input pl-10 text-base w-full"
+            />
+          </div>
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="btn btn-secondary shrink-0"
+            title="Sync resolved incidents to knowledge base"
+            id="kb-sync-btn"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+            <span className="hidden md:inline">{syncMutation.isPending ? "Syncing…" : "Sync"}</span>
+          </button>
         </div>
       </div>
 
@@ -124,6 +147,17 @@ export default function KnowledgeBasePage() {
               <p className="text-xs text-slate-400 mt-1">
                 Entries are added automatically when incidents are resolved
               </p>
+              {!search && (
+                <button
+                  onClick={() => syncMutation.mutate()}
+                  disabled={syncMutation.isPending}
+                  className="btn btn-primary mt-4"
+                  id="kb-sync-empty-btn"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                  {syncMutation.isPending ? "Syncing…" : "Sync from Resolved Incidents"}
+                </button>
+              )}
             </div>
           </div>
         )}

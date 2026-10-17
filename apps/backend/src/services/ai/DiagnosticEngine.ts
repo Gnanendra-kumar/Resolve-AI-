@@ -119,14 +119,13 @@ export async function runDiagnosticPipeline(
     })),
   };
 
-  // Step 8: Update incident in DynamoDB
+  // Step 8: Update incident in DynamoDB with diagnosis results
   await dbUpdate(Tables.INCIDENTS, { id: incidentId }, {
     aiDiagnosis,
     confidence,
     riskLevel,
     rootCause: diagnosis.rootCause,
     errorType: diagnosis.errorType,
-    status: "analyzing",
     updatedAt: new Date().toISOString(),
   });
 

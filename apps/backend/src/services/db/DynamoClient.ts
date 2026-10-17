@@ -46,8 +46,9 @@ function readMockDb(): Record<string, any[]> {
       {
         id: "mock-user-id",
         githubId: 12345,
-        username: "mock-sre",
-        avatarUrl: "https://github.com/identicons/mock-sre.png",
+        username: "Gnanendra-kumar",
+        avatarUrl: "https://avatars.githubusercontent.com/u/Gnanendra-kumar",
+        email: "gnanendrakumarpendyala@gmail.com",
         role: "engineer",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()

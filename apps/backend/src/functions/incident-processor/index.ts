@@ -99,6 +99,9 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
 
       const { aiDiagnosis, confidence, riskLevel, shouldAutoFix } = diagnosticResult;
 
+      // Track whether a PR was successfully created
+      let prCreated = false;
+
       // ── Auto-PR for low-risk, high-confidence issues ──────────────────
       if (shouldAutoFix && aiDiagnosis.fixDiff) {
         try {
@@ -113,8 +116,15 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
             await dbUpdate(Tables.INCIDENTS, { id: message.incidentId }, {
               status: "pr_created",
               prUrl: prResult.prUrl,
+              confidence,
+              riskLevel,
+              rootCause: aiDiagnosis.rootCause,
+              errorType: aiDiagnosis.errorType,
+              resolution: aiDiagnosis.resolution,
               updatedAt: new Date().toISOString(),
             });
+
+            prCreated = true;
 
             // Email temporarily disabled
             // const updatedIncident = await dbGet<Incident>(Tables.INCIDENTS, { id: message.incidentId });
@@ -128,6 +138,23 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           // Email temporarily disabled — skipping alert email
           console.log(`[IncidentProcessor] PR creation failed, email alert skipped`);
         }
+      }
+
+      // ── Finalize status: move out of "analyzing" ─────────────────────
+      // If no PR was created, update the incident with diagnosis results
+      // and set status to "open" so it appears ready for manual review.
+      if (!prCreated) {
+        await dbUpdate(Tables.INCIDENTS, { id: message.incidentId }, {
+          status: "open",
+          confidence,
+          riskLevel,
+          rootCause: aiDiagnosis.rootCause,
+          errorType: aiDiagnosis.errorType,
+          resolution: aiDiagnosis.resolution,
+          aiDiagnosis,
+          updatedAt: new Date().toISOString(),
+        });
+        console.log(`[IncidentProcessor] Incident ${message.incidentId} diagnosed — awaiting manual review`);
       }
 
       console.log(
