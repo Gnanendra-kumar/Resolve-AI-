@@ -7,8 +7,12 @@
       "destination": "https://0u3wgjv8u6.execute-api.us-east-1.amazonaws.com/api/:path*"
     },
     {
-      "source": "/auth/:path*",
-      "destination": "https://0u3wgjv8u6.execute-api.us-east-1.amazonaws.com/auth/:path*"
+      "source": "/auth/github/:path*",
+      "destination": "https://0u3wgjv8u6.execute-api.us-east-1.amazonaws.com/auth/github/:path*"
+    },
+    {
+      "source": "/auth/github",
+      "destination": "https://0u3wgjv8u6.execute-api.us-east-1.amazonaws.com/auth/github"
     },
     {
       "source": "/(.*)",
